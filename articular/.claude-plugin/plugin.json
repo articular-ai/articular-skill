@@ -1,0 +1,9 @@
+{
+  "name": "articular",
+  "description": "Keep a human in the loop — open an Articular board and scribe your reasoning as live sticky notes they can watch and steer.",
+  "version": "0.1.0",
+  "author": { "name": "Articular", "url": "https://articular.ai" },
+  "homepage": "https://articular.ai/docs",
+  "repository": "https://github.com/articular-ai/articular-skill",
+  "license": "MIT"
+}
