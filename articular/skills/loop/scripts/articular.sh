@@ -205,7 +205,7 @@ cmd_organize() {
 }
 
 cmd_summarize() {
-  local boardId="" wait="" board pid beforeGeneratedAt generatedAt pipelineStatus errorMessage i started
+  local boardId="" wait="" board pid beforeGeneratedAt generatedAt pipelineStatus errorMessage started
   [ $# -gt 0 ] || usage
   boardId="$1"; shift
   [ "${1:-}" = "--wait" ] && wait=1
@@ -216,7 +216,7 @@ cmd_summarize() {
   [ -z "$beforeGeneratedAt" ] && beforeGeneratedAt="$(echo "$started" | jq -r '.summaryGeneratedAt // ""')"
   echo "summary generation started" >&2
   if [ -n "$wait" ]; then
-    for i in $(seq 1 30); do
+    for _ in $(seq 1 30); do
       sleep 2
       board="$(_find_board "$boardId")"
       pipelineStatus="$(echo "$board" | jq -r '.status // ""')"

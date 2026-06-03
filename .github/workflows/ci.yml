@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # GitHub's ubuntu-latest runner ships jq and shellcheck preinstalled.
+
+      - name: Validate plugin + marketplace manifests (JSON)
+        run: |
+          jq -e . .claude-plugin/marketplace.json > /dev/null
+          for f in $(find . -path '*/.claude-plugin/plugin.json'); do
+            echo "validating $f"
+            jq -e . "$f" > /dev/null
+          done
+
+      - name: Shell syntax (bash -n)
+        run: |
+          for f in $(find . -name '*.sh'); do
+            echo "bash -n $f"
+            bash -n "$f"
+          done
+
+      - name: shellcheck
+        run: |
+          shellcheck --version
+          # -S warning: fail on warnings + errors; allow stylistic info notes.
+          for f in $(find . -name '*.sh'); do
+            echo "shellcheck $f"
+            shellcheck -S warning "$f"
+          done
+
+      - name: Marketplace resolves to a plugin with a skill
+        run: |
+          src=$(jq -r '.plugins[0].source' .claude-plugin/marketplace.json)
+          test -f "$src/.claude-plugin/plugin.json"
+          ls "$src"/skills/*/SKILL.md
