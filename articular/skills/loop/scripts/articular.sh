@@ -205,21 +205,33 @@ cmd_organize() {
 }
 
 cmd_summarize() {
-  local boardId="" wait="" board pid i status
+  local boardId="" wait="" board pid beforeGeneratedAt generatedAt pipelineStatus errorMessage i started
   [ $# -gt 0 ] || usage
   boardId="$1"; shift
   [ "${1:-}" = "--wait" ] && wait=1
   board="$(_find_board "$boardId")"
   pid="$(echo "$board" | jq -r '.projectId')"
-  _api POST "/api/projects/$pid/boards/$boardId/summarize" "{}" >/dev/null
+  beforeGeneratedAt="$(echo "$board" | jq -r '.summaryGeneratedAt // ""')"
+  started="$(_api POST "/api/projects/$pid/boards/$boardId/summarize" "{}")"
+  [ -z "$beforeGeneratedAt" ] && beforeGeneratedAt="$(echo "$started" | jq -r '.summaryGeneratedAt // ""')"
   echo "summary generation started" >&2
   if [ -n "$wait" ]; then
     for i in $(seq 1 30); do
       sleep 2
-      status="$(_find_board "$boardId" | jq -r '.agentStatus')"
-      [ "$status" = "ready" ] && { cmd_summary "$boardId"; return 0; }
+      board="$(_find_board "$boardId")"
+      pipelineStatus="$(echo "$board" | jq -r '.status // ""')"
+      generatedAt="$(echo "$board" | jq -r '.summaryGeneratedAt // ""')"
+      if [ "$pipelineStatus" = "error" ]; then
+        errorMessage="$(echo "$board" | jq -r '.errorMessage // "unknown error"')"
+        die "summary generation failed: $errorMessage"
+      fi
+      if [ "$pipelineStatus" = "done" ] && [ -n "$generatedAt" ] && [ "$generatedAt" != "$beforeGeneratedAt" ]; then
+        cmd_summary "$boardId"
+        return 0
+      fi
     done
-    echo "still generating after 60s — try: articular.sh summary $boardId" >&2
+    echo "still waiting for a fresh summary after 60s — try: articular.sh summary $boardId" >&2
+    return 1
   fi
 }
 
