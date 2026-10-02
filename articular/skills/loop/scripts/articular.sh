@@ -49,6 +49,31 @@ _api() {
   cat "$tmp"; rm -f "$tmp"
 }
 
+# Create a board seeded with text. The API renamed the seed field from
+# `rawTranscript` to `text`; an API from before the rename ignores `text` and
+# would make an empty board, while one after it refuses `rawTranscript` with
+# `400 renamed_field`. So send the old name first and, when the API says it was
+# renamed, send the new one. Works against both; drop the first attempt once
+# every deployment has the rename.
+_create_board() {
+  local pid="$1" title="$2" raw="$3" field body tmp http
+  for field in rawTranscript text; do
+    body="$(jq -n --arg t "$title" --arg r "$raw" --arg f "$field" '{title:$t} + {($f):$r}')"
+    tmp="$(mktemp)"
+    http="$(curl -sS -o "$tmp" -w '%{http_code}' -X POST "$API_URL/api/projects/$pid/boards" \
+              -H "Authorization: Bearer $ARTICULAR_API_KEY" -H "Content-Type: application/json" --data "$body")" \
+      || { rm -f "$tmp"; die "network error: POST /api/projects/$pid/boards"; }
+    if [ "$http" = 400 ] && [ "$field" = rawTranscript ] && [ "$(jq -r '.error // empty' "$tmp" 2>/dev/null)" = renamed_field ]; then
+      rm -f "$tmp"; continue
+    fi
+    if [ "$http" -ge 400 ]; then
+      { echo "articular: POST /api/projects/$pid/boards -> HTTP $http"; cat "$tmp"; echo; } >&2
+      rm -f "$tmp"; exit 1
+    fi
+    cat "$tmp"; rm -f "$tmp"; return 0
+  done
+}
+
 _board_link() { printf '%s/b/%s/%s' "$WEB_URL" "$1" "$2"; }  # shortcode slug
 
 _assert_num() { case "$1" in ''|*[!0-9]*) die "expected a numeric id, got: '$1'";; esac; }
@@ -88,7 +113,7 @@ usage() {
 articular.sh — externalize agent reasoning onto a live Articular board.
 
 Usage:
-  articular.sh create-board "<title>" [--context "<text>"] [--transcript-file <path>] [--project <id>]
+  articular.sh create-board "<title>" [--context "<text>"] [--text-file <path>] [--project <id>]
   articular.sh add-sticky <boardId> "<content>" [--category <cat>] [--group "<label>"] [--x <n> --y <n>] [--color <#hex>]
   articular.sh add-stickies-md <boardId> <file|->        # batch: each sticky is "## N. Title" + optional \`category\` line
   articular.sh organize <boardId>                        # let Articular's canvas agent tidy the layout
@@ -112,7 +137,7 @@ cmd_create_board() {
   while [ $# -gt 0 ]; do
     case "$1" in
       --context)         context="$2"; shift 2;;
-      --transcript-file) tfile="$2"; shift 2;;
+      --text-file|--transcript-file) tfile="$2"; shift 2;;   # --transcript-file: the flag's earlier name
       --project)         project="$2"; shift 2;;
       *) die "unknown flag: $1";;
     esac
@@ -120,7 +145,7 @@ cmd_create_board() {
   [ -n "$title" ] || die "create-board: title is required"
 
   # A board must be seeded with source material (the API rejects an empty board).
-  # Use the supplied context/transcript as the board's source — for a reasoning
+  # Use the supplied context or text file as the board's source — for a reasoning
   # board this is the task or problem statement you're working through.
   if [ -n "$tfile" ]; then
     raw="$([ "$tfile" = "-" ] && cat || cat "$tfile")"
@@ -132,8 +157,7 @@ cmd_create_board() {
 
   [ -n "$project" ] && ARTICULAR_PROJECT="$project"
   pid="$(_ensure_project)"
-  body="$(jq -n --arg t "$title" --arg r "$raw" '{title:$t, rawTranscript:$r}')"
-  resp="$(_api POST "/api/projects/$pid/boards" "$body")"
+  resp="$(_create_board "$pid" "$title" "$raw")"
   boardId="$(echo "$resp"  | jq -r '.id')"
   shortcode="$(echo "$resp" | jq -r '.shortcode')"
   slug="$(echo "$resp"     | jq -r '.slug')"
